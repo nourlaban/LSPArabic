@@ -1,0 +1,22 @@
+# @package data
+train_csv: ${hydra:runtime.cwd}/data/splits/train.csv
+val_csv:   ${hydra:runtime.cwd}/data/splits/val.csv
+test_csv:  ${hydra:runtime.cwd}/data/splits/test.csv
+roi_dir:   ${hydra:runtime.cwd}/data/processed/mouth_rois
+tokenizer_path: ${hydra:runtime.cwd}/data/tokenizer/arabic_spm.model
+
+batch_size: 16
+num_workers: 4
+pin_memory: true
+max_seq_len: 200
+persistent_workers: true
+
+augmentation:
+  horizontal_flip_p: 0.5
+  color_jitter:
+    brightness: 0.4
+    contrast: 0.4
+  temporal_jitter_max: 2
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std:  [0.229, 0.224, 0.225]

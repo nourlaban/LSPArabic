@@ -1,0 +1,6 @@
+# @package logger
+_target_: pytorch_lightning.loggers.WandbLogger
+project: ${project_name}
+name: ${experiment_name}
+save_dir: logs/
+log_model: false

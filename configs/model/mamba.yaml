@@ -1,0 +1,24 @@
+# @package model
+# Requires: pip install "lsparabic[mamba]"
+_target_: lsparabic.models.vsr_model.VSRModel
+
+visual_encoder:
+  _target_: lsparabic.models.visual_encoder.ResNet3D
+  output_dim: 512
+  pretrained: false
+
+sequence_model:
+  _target_: lsparabic.models.mamba_backend.MambaSSMEncoder
+  input_dim: 512
+  d_model: 256
+  num_layers: 6
+  d_state: 16
+  d_conv: 4
+  expand: 2
+
+decoder:
+  _target_: lsparabic.models.decoder.CTCDecoder
+  input_dim: 256
+  vocab_size: ???   # resolved at runtime from tokenizer.vocab_size
+
+proj_dim: 256

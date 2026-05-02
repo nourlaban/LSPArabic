@@ -1,0 +1,6 @@
+# @package optimizer
+_target_: torch.optim.SGD
+lr: 1.0e-2
+momentum: 0.9
+weight_decay: 1.0e-4
+nesterov: true

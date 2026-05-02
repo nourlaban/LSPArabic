@@ -1,0 +1,15 @@
+defaults:
+  - model: conformer
+  - data: arabic_vsr
+  - optimizer: adamw
+  - scheduler: cosine_annealing
+  - training: default
+  - preprocessing: default
+  - inference: default
+  - logger: wandb
+  - _self_
+
+project_name: LSPArabic
+experiment_name: conformer_baseline
+seed: 42
+device: cuda

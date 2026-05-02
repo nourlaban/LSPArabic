@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "lsparabic"
+version = "0.1.0"
+description = "Visual Speech Recognition for Arabic lip reading"
+authors = [{name = "nourlaban", email = "nourlaban@gmail.com"}]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+
+dependencies = [
+    # Deep learning core
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "torchaudio>=2.2.0",
+    "pytorch-lightning>=2.2.0",
+    # Config management
+    "hydra-core>=1.3.2",
+    "omegaconf>=2.3.0",
+    # Face / landmark detection
+    "mediapipe>=0.10.9",
+    "opencv-python>=4.9.0",
+    # ASR teacher
+    "faster-whisper>=1.0.0",
+    # Tokenization
+    "sentencepiece>=0.2.0",
+    # Tensor ops / model utilities
+    "einops>=0.7.0",
+    "timm>=0.9.16",
+    # Metrics / text processing
+    "jiwer>=3.0.3",
+    "pyarabic>=0.6.15",
+    # Logging & progress
+    "loguru>=0.7.2",
+    "wandb>=0.16.0",
+    "tqdm>=4.66.0",
+    # Data / IO
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "Pillow>=10.2.0",
+]
+
+[project.optional-dependencies]
+mamba = [
+    "mamba-ssm>=1.2.0",
+    "causal-conv1d>=1.2.0",
+]
+lm = [
+    "pyctcdecode>=0.5.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+]
+
+[project.scripts]
+lsparabic-preprocess = "scripts.preprocess:main"
+lsparabic-train      = "scripts.train:main"
+lsparabic-evaluate   = "scripts.evaluate:main"
+lsparabic-infer      = "scripts.infer:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+strict = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

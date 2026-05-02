@@ -1,0 +1,5 @@
+# @package scheduler
+_target_: torch.optim.lr_scheduler.CosineAnnealingLR
+T_max: ${training.max_epochs}
+eta_min: 1.0e-6
+warmup_epochs: 5

@@ -1,0 +1,15 @@
+# @package inference
+checkpoint_path: ???
+video_path: ???
+device: cuda
+
+sliding_window:
+  window_size: 75
+  stride: 25
+  overlap_strategy: max_pool
+
+beam_search:
+  beam_width: 10
+  alpha: 1.0
+  beta: 0.0
+  lm_model_path: null
