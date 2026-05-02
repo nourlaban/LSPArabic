@@ -1,4 +1,4 @@
-.PHONY: install install-dev preprocess train evaluate infer test lint typecheck clean
+.PHONY: install install-dev install-synthesis preprocess train evaluate infer synthesize test lint typecheck clean
 
 PYTHON := python
 SCRIPTS := scripts
@@ -8,6 +8,9 @@ install:
 
 install-dev:
 	pip install -e ".[dev]"
+
+install-synthesis:
+	pip install -e ".[synthesis]"
 
 preprocess:
 	$(PYTHON) $(SCRIPTS)/preprocess.py
@@ -20,6 +23,9 @@ evaluate:
 
 infer:
 	$(PYTHON) $(SCRIPTS)/infer.py
+
+synthesize:
+	$(PYTHON) $(SCRIPTS)/synthesize.py
 
 test:
 	pytest tests/ --cov=src/lsparabic --cov-report=term-missing

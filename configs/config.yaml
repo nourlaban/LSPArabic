@@ -6,6 +6,7 @@ defaults:
   - training: default
   - preprocessing: default
   - inference: default
+  - synthesis: default
   - logger: wandb
   - _self_
 

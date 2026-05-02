@@ -1,0 +1,39 @@
+# @package synthesis
+# ── VSR inference ──────────────────────────────────────────────────────────────
+checkpoint_path: ???        # required: path to trained VSR checkpoint
+device: cuda
+
+# ── Input / Output paths ───────────────────────────────────────────────────────
+silent_video: ???           # required at CLI
+reference_video: ???        # required at CLI: a video of the speaker WITH audio
+output_video: ???           # required at CLI: destination .mp4
+
+# Optionally skip voice extraction and supply a reference WAV directly
+reference_audio: null       # path to a 22050 Hz mono WAV (3–60 s) or null
+
+# ── Voice extraction ───────────────────────────────────────────────────────────
+voice_extraction:
+  duration: 30.0            # seconds to extract
+  start_offset: 2.0         # seconds to skip at the start (avoid intro noise)
+  sample_rate: 22050        # Hz  (XTTS v2 native)
+  normalize_audio: true     # loudnorm to -16 LUFS for consistent volume
+
+# ── XTTS v2 synthesizer ────────────────────────────────────────────────────────
+tts:
+  temperature: 0.65         # creativity vs stability (lower = more stable)
+  length_penalty: 1.0
+  repetition_penalty: 2.0
+  top_k: 50
+  top_p: 0.85
+  speed: 1.0                # playback speed multiplier (1.0 = natural)
+  chunk_size: 200           # max chars per synthesis chunk for long texts
+
+# ── Audio-video muxer ──────────────────────────────────────────────────────────
+muxer:
+  audio_bitrate: 192k
+  audio_codec: aac
+  preserve_metadata: true
+  pad_audio: true           # pad with silence if audio < video duration
+
+# ── Optional subtitle overlay ──────────────────────────────────────────────────
+burn_subtitles: false       # burn predicted Arabic text into the video frames

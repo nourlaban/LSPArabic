@@ -1,6 +1,8 @@
 # LSPArabic — Visual Speech Recognition for Arabic
 
-A production-ready Arabic lip-reading system. Given a **silent video** of someone speaking Arabic, the model predicts the spoken text. Training uses your own synchronized audio+video recordings as the data source.
+A production-ready Arabic lip-reading system. Given a **silent video** of someone speaking Arabic, the model predicts the spoken text — and can **clone the speaker's voice** to produce a final video with synthesized Arabic speech that matches how the person sounds.
+
+Training uses your own synchronized audio+video recordings as the data source.
 
 ---
 
@@ -8,6 +10,8 @@ A production-ready Arabic lip-reading system. Given a **silent video** of someon
 
 - [Overview](#overview)
 - [Architecture](#architecture)
+  - [VSR Model](#vsr-model)
+  - [Speech Synthesis Pipeline](#speech-synthesis-pipeline)
 - [Project Structure](#project-structure)
 - [Installation](#installation)
 - [Workflow](#workflow)
@@ -15,7 +19,8 @@ A production-ready Arabic lip-reading system. Given a **silent video** of someon
   - [2. Preprocess](#2-preprocess)
   - [3. Train](#3-train)
   - [4. Evaluate](#4-evaluate)
-  - [5. Infer](#5-infer)
+  - [5. Infer (text only)](#5-infer-text-only)
+  - [6. Synthesize (video with cloned speech)](#6-synthesize-video-with-cloned-speech)
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [Design Principles](#design-principles)
@@ -27,6 +32,13 @@ A production-ready Arabic lip-reading system. Given a **silent video** of someon
 
 ```
 Silent video  ──►  Mouth ROI crop  ──►  ResNet3D + Conformer  ──►  Arabic text
+                                                                          │
+                                             Reference video (with audio) ┤
+                                                                          ▼
+                                                           XTTS v2 voice cloning
+                                                                          │
+                                                                          ▼
+                                              Silent video + Synthesized speech  ──►  Output video
 ```
 
 During **training**, a frozen Whisper-Large-V3 teacher guides the video model via:
@@ -39,6 +51,8 @@ During **inference**, only the video branch is used — no audio required.
 ---
 
 ## Architecture
+
+### VSR Model
 
 ```
                    ┌─────────────────────────────────────────────────────┐
@@ -67,6 +81,37 @@ During **inference**, only the video branch is used — no audio required.
 | Tokenization | SentencePiece BPE, vocab=5000 | Handles Arabic morphology |
 | Config | Hydra 1.3 + OmegaConf | Modular YAML groups |
 | Training loop | PyTorch Lightning | AMP, grad clipping, early stopping |
+
+### Speech Synthesis Pipeline
+
+```
+  silent_video.mp4  ──────────────────────────────────────────────────────────────────┐
+                                                                                       │
+  reference_video.mp4 (same speaker, with audio)                                      │
+       │                                                                               │
+       ▼  ReferenceVoiceExtractor                                                      │
+  reference_voice.wav  (best 30 s segment, 22 050 Hz mono, loudnorm)                  │
+       │                                                                               ▼
+       │             VSRPredictor                                             AudioVideoMuxer
+       │      ──────────────────────                                         (ffmpeg: -c:v copy
+       │      silent_video → Arabic text                                      -c:a aac -t <dur>)
+       │             │                                                               ▲
+       └─────────────┤                                                               │
+                     ▼                                                               │
+              XTTSSynthesizer  (XTTS v2 zero-shot voice cloning)                    │
+              Arabic text + reference_voice → synthesized_speech.wav ───────────────┘
+                                                                          │
+                                                                          ▼
+                                                               output_video.mp4
+                                                          (silent video + cloned voice)
+```
+
+| Component | Implementation | Notes |
+|---|---|---|
+| Voice extractor | `ReferenceVoiceExtractor` | ffmpeg-based; picks loudest 30 s segment |
+| Voice cloning TTS | `XTTSSynthesizer` (XTTS v2) | Zero-shot; 3–60 s reference, Arabic supported |
+| Audio/video mux | `AudioVideoMuxer` | ffmpeg; copies video stream losslessly |
+| Subtitle overlay | `AudioVideoMuxer.mux_with_subtitle` | Optional: burns predicted text into frames |
 
 ---
 
@@ -132,12 +177,15 @@ LSPArabic/
 │   ├── preprocess.py               Step 1: extract ROIs + transcribe audio
 │   ├── train.py                    Step 2: fit the model
 │   ├── evaluate.py                 Step 3: WER/CER on test split
-│   └── infer.py                    Step 4: predict from a silent video
+│   ├── infer.py                    Step 4: predict text from a silent video
+│   └── synthesize.py               Step 5: lip-read + clone voice → output video with speech
 │
 ├── tests/
 │   ├── conftest.py                 Shared fixtures (dummy video, tokenizer, mocks)
-│   ├── unit/                       11 unit tests (CPU-only)
-│   └── integration/                4 integration tests
+│   ├── unit/                       14 unit tests (CPU-only)
+│   │   └── synthesis/              3 synthesis unit tests
+│   └── integration/                5 integration tests
+│       └── synthesis/              1 synthesis integration test
 │
 └── data/                           (gitignored — populate locally)
     ├── raw/                        Your original .mp4 recordings
@@ -260,9 +308,9 @@ python scripts/evaluate.py inference.checkpoint_path=checkpoints/best.ckpt
 
 Outputs `test/wer` and `test/cer` to the console.
 
-### 5. Infer
+### 5. Infer (text only)
 
-Run lip reading on a silent video:
+Run lip reading on a silent video and print the predicted Arabic text:
 
 ```bash
 python scripts/infer.py \
@@ -292,6 +340,73 @@ python scripts/infer.py ... inference.sliding_window.window_size=100
 python scripts/infer.py ... inference.device=cpu
 ```
 
+### 6. Synthesize (video with cloned speech)
+
+Perform lip reading **and** clone the speaker's voice to produce a final video with Arabic speech:
+
+```bash
+pip install "lsparabic[synthesis]"    # install XTTS v2 (one-time, ~1.7 GB model download)
+
+python scripts/synthesize.py \
+  synthesis.checkpoint_path=checkpoints/best.ckpt \
+  synthesis.silent_video=input/silent_clip.mp4 \
+  synthesis.reference_video=reference/speaker_audio.mp4 \
+  synthesis.output_video=output/result_with_speech.mp4
+```
+
+What each argument means:
+
+| Argument | Description |
+|---|---|
+| `synthesis.silent_video` | The video you want to lip-read (no audio required) |
+| `synthesis.reference_video` | **Any video of the same speaker with clear audio** — used to clone the voice |
+| `synthesis.output_video` | Where to write the result |
+
+**Supply a reference WAV directly** (skip extraction):
+
+```bash
+python scripts/synthesize.py \
+  synthesis.checkpoint_path=checkpoints/best.ckpt \
+  synthesis.silent_video=input/clip.mp4 \
+  synthesis.reference_video=ref.mp4 \
+  synthesis.reference_audio=my_voice_sample.wav \
+  synthesis.output_video=output/result.mp4
+```
+
+**Burn predicted Arabic subtitles into the video**:
+
+```bash
+python scripts/synthesize.py ... synthesis.burn_subtitles=true
+```
+
+**Batch process multiple silent videos** (same speaker):
+
+```python
+from lsparabic.synthesis import SynthesisPipeline
+
+results = pipeline.run_batch(
+    silent_videos=list(Path("input/").glob("*.mp4")),
+    reference_video=Path("reference/speaker.mp4"),
+    output_dir=Path("output/"),
+)
+```
+
+Console output:
+
+```
+[1/4] Predicting text from: silent_clip.mp4
+      Predicted: 'مرحبا بكم في هذا البرنامج'
+[2/4] Extracting reference voice from: speaker_audio.mp4
+[3/4] Synthesizing Arabic speech with voice cloning …
+[4/4] Muxing audio into video → result_with_speech.mp4
+
+=================================================================
+  Predicted text : مرحبا بكم في هذا البرنامج
+  Reference audio: /tmp/reference_voice.wav
+  Output video   : output/result_with_speech.mp4
+=================================================================
+```
+
 ---
 
 ## Configuration
@@ -312,6 +427,11 @@ All configuration is managed by [Hydra](https://hydra.cc). The entry point is [c
 | `preprocessing` | `mouth_roi.crop_factor` | `1.5` | ROI bounding box expansion |
 | `inference` | `sliding_window.window_size` | `75` | Frames per window |
 | `inference` | `beam_search.beam_width` | `10` | Beam search width |
+| `synthesis` | `tts.temperature` | `0.65` | XTTS creativity vs stability |
+| `synthesis` | `tts.speed` | `1.0` | Speech playback speed |
+| `synthesis` | `voice_extraction.duration` | `30.0` | Reference clip length (seconds) |
+| `synthesis` | `muxer.audio_bitrate` | `192k` | Output audio quality |
+| `synthesis` | `burn_subtitles` | `false` | Burn predicted text into video frames |
 
 ### Switching to Mamba
 
@@ -393,3 +513,6 @@ This project follows **SOLID** principles throughout:
 | `wandb` | Experiment tracking |
 | `mamba-ssm` *(optional)* | Mamba SSM temporal backend |
 | `pyctcdecode` *(optional)* | KenLM-guided beam search |
+| `TTS` *(optional)* | Coqui XTTS v2 zero-shot voice cloning |
+| `soundfile` *(optional)* | WAV I/O for long-text synthesis chunking |
+| `librosa` *(optional)* | Audio analysis utilities |
