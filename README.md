@@ -6,6 +6,130 @@ Training uses your own synchronized audio+video recordings as the data source.
 
 ---
 
+## ملاحظات بالعربية
+
+> هذا القسم يشرح المشروع كاملاً باللغة العربية. المحتوى الإنجليزي أدناه يبقى كما هو للرجوع إليه.
+
+### ما هو هذا المشروع؟
+
+**LSPArabic** نظام متكامل لقراءة الشفاه باللغة العربية. يأخذ النظام **فيديو صامت** لشخص يتكلم العربية، ويتنبأ بالنص المنطوق، ثم يستطيع **استنساخ صوت المتكلم** لإنتاج فيديو نهائي يحتوي على كلام عربي مُركَّب بصوت الشخص الأصلي.
+
+---
+
+### المكونات الرئيسية
+
+#### ١. نموذج التعرف البصري على الكلام (VSR Model)
+
+يتكون النموذج من ثلاث طبقات رئيسية:
+
+| المكوّن | الوظيفة |
+|---|---|
+| **ResNet3D** | يستخرج ميزات بصرية من إطارات الفم `(B, T, 512)` |
+| **ConformerEncoder أو MambaSSMEncoder** | يُحلِّل التسلسل الزمني للميزات `(B, T, 256)` |
+| **CTCDecoder** | يُحوِّل الميزات إلى رموز نصية عربية |
+
+أثناء **التدريب** فقط، يُستخدم نموذج Whisper-Large-V3 كمعلم مجمَّد لتوجيه النموذج عبر:
+- خسارة CTC على تسلسل الرموز المتنبَّأ بها
+- تباعد كولباك-لايبلر (KL) بين توزيعات الطالب والمعلم
+- خسارة MSE بين الميزات الخفية للطالب والمعلم
+
+أثناء **الاستدلال**، يُستخدم فرع الفيديو فقط — لا يحتاج إلى صوت.
+
+#### ٢. خط أنابيب تركيب الكلام (Synthesis Pipeline)
+
+```
+فيديو صامت  ──►  تنبؤ بالنص  ──►  XTTSSynthesizer (XTTS v2)  ──►  فيديو + كلام مُركَّب
+                                          ▲
+                       استخراج صوت مرجعي (30 ثانية) من فيديو المتكلم
+```
+
+| المكوّن | الوظيفة |
+|---|---|
+| `ReferenceVoiceExtractor` | يستخرج أفضل مقطع صوتي (30 ث) من فيديو المرجع |
+| `XTTSSynthesizer` | يُركِّب النص العربي بصوت المتكلم (استنساخ صوتي بدون تدريب) |
+| `AudioVideoMuxer` | يدمج الصوت المُركَّب مع الفيديو الصامت عبر ffmpeg |
+
+---
+
+### هيكل الملفات المهمة
+
+```
+configs/              ← إعدادات Hydra (النموذج، التدريب، المعالجة المسبقة)
+src/lsparabic/
+  ├── data/           ← استخراج الإطارات، اقتصاص الفم (MediaPipe)، المُرمِّز
+  ├── models/         ← ResNet3D، Conformer، Mamba، CTCDecoder
+  ├── training/       ← دورة التدريب (Lightning)، خسارة CTC، تقطير المعرفة
+  ├── inference/       ← النافذة المنزلقة، بحث الشعاع، المتنبئ
+  ├── synthesis/      ← خط أنابيب تركيب الكلام كاملاً
+  └── utils/          ← أدوات النص العربي، تحميل نقاط التفتيش
+scripts/              ← preprocess ← train ← evaluate ← infer ← synthesize
+```
+
+---
+
+### سير العمل خطوة بخطوة
+
+#### الخطوة ١: المعالجة المسبقة
+```bash
+python scripts/preprocess.py
+```
+- يستخرج منطقة الفم (96×96 بكسل) من كل فيديو باستخدام MediaPipe FaceMesh
+- يُولِّد النصوص العربية من الصوت عبر Whisper-Large-V3
+- يُدرِّب مُرمِّز SentencePiece على النصوص العربية (5000 رمز)
+- يُنشئ ملفات التقسيم: `train.csv`, `val.csv`, `test.csv`
+
+#### الخطوة ٢: التدريب
+```bash
+python scripts/train.py           # Conformer (افتراضي)
+python scripts/train.py model=mamba  # Mamba SSM (أسرع)
+```
+- نقاط التفتيش تُحفظ في `checkpoints/` باسم `epoch=N-val_wer=X.ckpt`
+- `last.ckpt` يُكتب بعد كل حقبة
+- أنشئ رابطاً رمزياً: `ln -sf "epoch=9-val_wer=0.85.ckpt" checkpoints/best.ckpt`
+
+#### الخطوة ٣: التقييم
+```bash
+python scripts/evaluate.py inference.checkpoint_path=checkpoints/best.ckpt
+```
+يُخرج معدل خطأ الكلمات (WER) ومعدل خطأ الأحرف (CER) على مجموعة الاختبار.
+
+#### الخطوة ٤: الاستدلال (نص فقط)
+```bash
+python scripts/infer.py \
+  inference.checkpoint_path=checkpoints/best.ckpt \
+  inference.video_path=data/input/my_video.mp4
+```
+
+#### الخطوة ٥: التركيب (فيديو + صوت مُستنسَخ)
+```bash
+pip install "coqui-tts[codec]"   # تثبيت لمرة واحدة (~1.7 جيجابايت)
+
+python scripts/synthesize.py \
+  synthesis.checkpoint_path=checkpoints/best.ckpt \
+  synthesis.silent_video=data/input/silent_clip.mp4 \
+  synthesis.reference_video=data/raw/session_001.mp4 \
+  synthesis.output_video=output/result_with_speech.mp4
+```
+
+---
+
+### ملاحظات تقنية مهمة
+
+**WSL2 / Linux:**
+- MediaPipe يحتاج OpenGL ES: `sudo apt-get install -y libgles2`
+- رسالة `DRI3 error` وخطأ `TypeError: 'NoneType' object is not callable` عند الإغلاق — كلاهما غير ضار ويمكن تجاهلهما
+
+**PyTorch 2.9+ و torchcodec:**
+- إذا فشل `torchcodec` في التحميل بسبب عدم توافق ABI، يتحوَّل المُركِّب تلقائياً إلى `soundfile` لتحميل الصوت — لا يلزم أي إجراء
+
+**جودة النص المُتنبَّأ:**
+- النص المُتنبَّأ به يعكس جودة بيانات التدريب. النموذج المُدرَّب على جلسة واحدة قصيرة سيُنتج نصاً متكرراً ومبتوراً. لتحسين الدقة: أضف المزيد من الفيديوهات وأعد التدريب.
+
+**بنية نقطة التفتيش:**
+- تُخزِّن كل نقطة تفتيش إعدادات النموذج داخلها (Conformer أو Mamba). دالة `build_model_from_checkpoint` تقرأ هذه الإعدادات تلقائياً، لذا لا داعي لتحديد البنية يدوياً عند الاستدلال أو التقييم.
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -167,8 +291,16 @@ LSPArabic/
 │   │   ├── beam_search.py          CTC beam search (optional KenLM)
 │   │   └── predictor.py            End-to-end MP4 → Arabic string
 │   │
+│   ├── synthesis/
+│   │   ├── interfaces.py           BaseVoiceSynthesizer ABC
+│   │   ├── voice_extractor.py      ReferenceVoiceExtractor (best segment, loudnorm)
+│   │   ├── tts_synthesizer.py      XTTSSynthesizer — XTTS v2 zero-shot voice cloning
+│   │   ├── audio_video_muxer.py    AudioVideoMuxer — ffmpeg audio+video mux
+│   │   └── synthesis_pipeline.py  SynthesisPipeline — end-to-end orchestrator
+│   │
 │   └── utils/
 │       ├── arabic_text.py          Normalize, strip diacritics, WER/CER
+│       ├── checkpoint_utils.py     build_model_from_checkpoint (reads arch from ckpt)
 │       ├── metrics.py              MetricsTracker (accumulates WER/CER)
 │       ├── video_io.py             VideoReader / VideoWriter helpers
 │       └── logging_utils.py        Loguru setup
@@ -215,8 +347,8 @@ cd LSPArabic
 # Install with dev extras
 pip install -e ".[dev]"
 
-# Install PyTorch with your CUDA version (example: CUDA 12.1)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Install PyTorch with your CUDA version (example: CUDA 12.6)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
 # Optional: Mamba SSM backend (CUDA only)
 pip install "lsparabic[mamba]"
@@ -224,10 +356,17 @@ pip install "lsparabic[mamba]"
 # Optional: LM-guided beam search
 pip install "lsparabic[lm]"
 
+# Optional: voice synthesis (XTTS v2, ~1.7 GB model auto-downloaded on first run)
+pip install "coqui-tts[codec]"
+
 # Configure secrets
 cp .env.example .env
 # Edit .env: set WANDB_API_KEY, CUDA_VISIBLE_DEVICES, etc.
 ```
+
+> **PyTorch 2.9 + torchcodec note** — If `torchcodec` fails to load due to an ABI mismatch (symbol `torch_dtype_float4_e2m1fn_x2` missing), the synthesizer automatically falls back to `soundfile` for audio I/O. No action needed.
+
+> **WSL2 note** — MediaPipe Tasks API requires OpenGL ES. Install Mesa: `sudo apt-get install -y libgles2`. The `DRI3 error` warnings and the `TypeError: 'NoneType' object is not callable` on shutdown are harmless.
 
 ---
 
@@ -298,7 +437,11 @@ python scripts/train.py training.loss_weights.kd=1.0 training.loss_weights.featu
 python scripts/train.py data.batch_size=8 training.accumulate_grad_batches=8
 ```
 
-Checkpoints are saved to `checkpoints/` and monitored by `val/wer`.
+Checkpoints are saved to `checkpoints/` and monitored by `val/wer`. Files are named `epoch=N-val_wer=X.ckpt`; a `last.ckpt` symlink is also written after every epoch. Create a `best.ckpt` symlink to the checkpoint you want to use for evaluation and inference:
+
+```bash
+ln -sf "epoch=9-val_wer=0.85.ckpt" checkpoints/best.ckpt
+```
 
 ### 4. Evaluate
 
@@ -345,12 +488,12 @@ python scripts/infer.py ... inference.device=cpu
 Perform lip reading **and** clone the speaker's voice to produce a final video with Arabic speech:
 
 ```bash
-pip install "lsparabic[synthesis]"    # install XTTS v2 (one-time, ~1.7 GB model download)
+pip install "coqui-tts[codec]"    # one-time; ~1.7 GB model auto-downloaded on first run
 
 python scripts/synthesize.py \
   synthesis.checkpoint_path=checkpoints/best.ckpt \
-  synthesis.silent_video=input/silent_clip.mp4 \
-  synthesis.reference_video=reference/speaker_audio.mp4 \
+  synthesis.silent_video=data/input/silent_clip.mp4 \
+  synthesis.reference_video=data/raw/session_001.mp4 \
   synthesis.output_video=output/result_with_speech.mp4
 ```
 
@@ -367,8 +510,7 @@ What each argument means:
 ```bash
 python scripts/synthesize.py \
   synthesis.checkpoint_path=checkpoints/best.ckpt \
-  synthesis.silent_video=input/clip.mp4 \
-  synthesis.reference_video=ref.mp4 \
+  synthesis.silent_video=data/input/clip.mp4 \
   synthesis.reference_audio=my_voice_sample.wav \
   synthesis.output_video=output/result.mp4
 ```
@@ -513,6 +655,6 @@ This project follows **SOLID** principles throughout:
 | `wandb` | Experiment tracking |
 | `mamba-ssm` *(optional)* | Mamba SSM temporal backend |
 | `pyctcdecode` *(optional)* | KenLM-guided beam search |
-| `TTS` *(optional)* | Coqui XTTS v2 zero-shot voice cloning |
-| `soundfile` *(optional)* | WAV I/O for long-text synthesis chunking |
+| `coqui-tts[codec]` *(optional)* | Coqui XTTS v2 zero-shot voice cloning (Python 3.12 compatible fork) |
+| `soundfile` *(optional)* | WAV I/O for long-text synthesis chunking; also used as torchaudio fallback |
 | `librosa` *(optional)* | Audio analysis utilities |

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import torch
 from loguru import logger
@@ -74,7 +75,7 @@ class XTTSSynthesizer(BaseVoiceSynthesizer):
         self.top_k = top_k
         self.top_p = top_p
         self.speed = speed
-        self._tts = None
+        self._tts: Any = None
 
     def _load(self) -> None:
         if self._tts is not None:
@@ -155,22 +156,35 @@ class XTTSSynthesizer(BaseVoiceSynthesizer):
         import soundfile as sf
 
         # Split on Arabic sentence terminators: ، . ! ؟
-        sentences = re.split(r"(?<=[.!?؟،])\s+", text.strip())
-        if not sentences:
-            return self.synthesize(text, reference_audio, output_path, language)
+        sentences = re.split(r"(?<=[.!?؟،])\s+", text.strip()) or [text.strip()]
 
-        # Group sentences into chunks that fit within chunk_size chars
+        # Group into chunks ≤ chunk_size chars, splitting on word boundaries when
+        # a single "sentence" already exceeds the limit (e.g. no punctuation at all).
         chunks: list[str] = []
         current = ""
+
+        def _flush(buf: str) -> None:
+            if buf:
+                chunks.append(buf)
+
         for sent in sentences:
-            if len(current) + len(sent) + 1 <= chunk_size:
+            if len(sent) > chunk_size:
+                # Sentence is too long on its own — split on whitespace
+                _flush(current)
+                current = ""
+                for word in sent.split():
+                    if len(current) + len(word) + 1 <= chunk_size:
+                        current = (current + " " + word).strip()
+                    else:
+                        _flush(current)
+                        current = word
+            elif len(current) + len(sent) + 1 <= chunk_size:
                 current = (current + " " + sent).strip()
             else:
-                if current:
-                    chunks.append(current)
+                _flush(current)
                 current = sent
-        if current:
-            chunks.append(current)
+
+        _flush(current)
 
         if len(chunks) == 1:
             return self.synthesize(chunks[0], reference_audio, output_path, language)
