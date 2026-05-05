@@ -8,6 +8,43 @@ from loguru import logger
 from lsparabic.synthesis.interfaces import BaseVoiceSynthesizer
 
 
+def _patch_torchaudio_if_needed() -> None:
+    """Replace torchaudio.load with a soundfile backend when torchcodec fails to load.
+
+    torchcodec has a strict PyTorch ABI requirement; when there is a version
+    mismatch the shared library fails to dlopen and torchaudio.load raises
+    RuntimeError at import time.  soundfile handles plain WAV/FLAC/OGG just
+    fine for the reference-audio use case.
+    """
+    try:
+        import torchcodec.decoders  # noqa: F401
+        return  # torchcodec loads cleanly — nothing to patch
+    except Exception:
+        pass
+
+    import soundfile as sf
+    import torchaudio
+
+    def _sf_load(
+        filepath,
+        frame_offset: int = 0,
+        num_frames: int = -1,
+        _normalize: bool = True,
+        channels_first: bool = True,
+        **__,
+    ):
+        data, sr = sf.read(str(filepath), dtype="float32", always_2d=True)
+        if frame_offset:
+            data = data[frame_offset:]
+        if num_frames > 0:
+            data = data[:num_frames]
+        wav = torch.from_numpy(data.T if channels_first else data)
+        return wav, sr
+
+    torchaudio.load = _sf_load
+    logger.info("torchaudio.load → soundfile fallback (torchcodec ABI mismatch)")
+
+
 class XTTSSynthesizer(BaseVoiceSynthesizer):
     """Arabic voice cloning TTS using Coqui XTTS v2.
 
@@ -42,6 +79,7 @@ class XTTSSynthesizer(BaseVoiceSynthesizer):
     def _load(self) -> None:
         if self._tts is not None:
             return
+        _patch_torchaudio_if_needed()
         try:
             from TTS.api import TTS as CoquiTTS
         except ImportError as e:

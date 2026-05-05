@@ -5,7 +5,7 @@ device: cuda
 
 # ── Input / Output paths ───────────────────────────────────────────────────────
 silent_video: ???           # required at CLI
-reference_video: ???        # required at CLI: a video of the speaker WITH audio
+reference_video: null       # video of the speaker WITH audio (required unless reference_audio is set)
 output_video: ???           # required at CLI: destination .mp4
 
 # Optionally skip voice extraction and supply a reference WAV directly

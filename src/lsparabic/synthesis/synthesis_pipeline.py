@@ -49,7 +49,7 @@ class SynthesisPipeline:
     def run(
         self,
         silent_video: Path,
-        reference_video: Path,
+        reference_video: Path | None,
         output_video: Path,
         reference_audio: Path | None = None,
     ) -> SynthesisResult:
@@ -80,6 +80,10 @@ class SynthesisPipeline:
 
             # ── Step 2: Extract reference voice clip ───────────────────────
             if reference_audio is None:
+                if reference_video is None:
+                    raise ValueError(
+                        "Either reference_video or reference_audio must be provided."
+                    )
                 ref_audio_path = tmp / "reference_voice.wav"
                 logger.info(f"[2/4] Extracting reference voice from: {reference_video.name}")
                 reference_audio = self.voice_extractor.extract_best_segment(

@@ -52,7 +52,7 @@ lm = [
     "pyctcdecode>=0.5.0",
 ]
 synthesis = [
-    "TTS>=0.22.0",       # Coqui XTTS v2 voice cloning
+    "coqui-tts>=0.25.3", # Coqui XTTS v2 fork with Python 3.12 support (installs as TTS)
     "soundfile>=0.12.0", # WAV I/O for audio chunk concatenation
     "librosa>=0.10.0",   # Audio analysis utilities
 ]

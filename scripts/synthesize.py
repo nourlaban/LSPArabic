@@ -26,8 +26,7 @@ from pathlib import Path
 
 import hydra
 import torch
-from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from lsparabic.data.frame_extractor import VideoFrameExtractor
 from lsparabic.data.roi_cropper import MediaPipeMouthCropper
@@ -35,13 +34,13 @@ from lsparabic.data.tokenizer import ArabicSentencePieceTokenizer
 from lsparabic.inference.beam_search import BeamSearchDecoder
 from lsparabic.inference.predictor import VSRPredictor
 from lsparabic.inference.sliding_window import SlidingWindowProcessor
-from lsparabic.models.vsr_model import VSRModel
 from lsparabic.synthesis.audio_video_muxer import AudioVideoMuxer
 from lsparabic.synthesis.synthesis_pipeline import SynthesisPipeline
 from lsparabic.synthesis.tts_synthesizer import XTTSSynthesizer
 from lsparabic.synthesis.voice_extractor import ReferenceVoiceExtractor
 from lsparabic.training.lightning_module import VSRLightningModule
 from lsparabic.training.teacher import WhisperTeacher
+from lsparabic.utils.checkpoint_utils import build_model_from_checkpoint
 from lsparabic.utils.logging_utils import setup_logging
 
 
@@ -53,17 +52,7 @@ def main(cfg: DictConfig) -> None:
 
     # ── Load VSR model ────────────────────────────────────────────────────────
     tokenizer = ArabicSentencePieceTokenizer(Path(cfg.data.tokenizer_path))
-    OmegaConf.update(cfg, "model.decoder.vocab_size", tokenizer.vocab_size, merge=True)
-
-    visual_encoder = instantiate(cfg.model.visual_encoder)
-    sequence_model = instantiate(cfg.model.sequence_model)
-    decoder_module = instantiate(cfg.model.decoder)
-    model = VSRModel(
-        visual_encoder=visual_encoder,
-        sequence_model=sequence_model,
-        decoder=decoder_module,
-        proj_dim=cfg.model.proj_dim,
-    )
+    model = build_model_from_checkpoint(scfg.checkpoint_path, tokenizer.vocab_size)
     teacher = WhisperTeacher()
     module = VSRLightningModule.load_from_checkpoint(
         scfg.checkpoint_path,
@@ -138,9 +127,17 @@ def main(cfg: DictConfig) -> None:
 
     # ── Run ───────────────────────────────────────────────────────────────────
     reference_audio = Path(scfg.reference_audio) if scfg.reference_audio else None
+    reference_video = Path(scfg.reference_video) if scfg.reference_video else None
+
+    if reference_audio is None and reference_video is None:
+        raise ValueError(
+            "Provide either synthesis.reference_video (a video with audio from the target speaker) "
+            "or synthesis.reference_audio (a pre-extracted WAV file)."
+        )
+
     result = pipeline.run(
         silent_video=Path(scfg.silent_video),
-        reference_video=Path(scfg.reference_video),
+        reference_video=reference_video,
         output_video=Path(scfg.output_video),
         reference_audio=reference_audio,
     )
