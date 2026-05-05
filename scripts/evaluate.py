@@ -6,15 +6,13 @@ from pathlib import Path
 
 import hydra
 import pytorch_lightning as pl
-import torch
-from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from lsparabic.data.datamodule import ArabicVSRDataModule
 from lsparabic.data.tokenizer import ArabicSentencePieceTokenizer
-from lsparabic.models.vsr_model import VSRModel
 from lsparabic.training.lightning_module import VSRLightningModule
 from lsparabic.training.teacher import WhisperTeacher
+from lsparabic.utils.checkpoint_utils import build_model_from_checkpoint
 from lsparabic.utils.logging_utils import setup_logging
 
 
@@ -23,17 +21,7 @@ def main(cfg: DictConfig) -> None:
     setup_logging()
 
     tokenizer = ArabicSentencePieceTokenizer(Path(cfg.data.tokenizer_path))
-    OmegaConf.update(cfg, "model.decoder.vocab_size", tokenizer.vocab_size, merge=True)
-
-    visual_encoder = instantiate(cfg.model.visual_encoder)
-    sequence_model = instantiate(cfg.model.sequence_model)
-    decoder = instantiate(cfg.model.decoder)
-    model = VSRModel(
-        visual_encoder=visual_encoder,
-        sequence_model=sequence_model,
-        decoder=decoder,
-        proj_dim=cfg.model.proj_dim,
-    )
+    model = build_model_from_checkpoint(cfg.inference.checkpoint_path, tokenizer.vocab_size)
 
     teacher = WhisperTeacher(
         model_size=cfg.training.teacher.model_size,

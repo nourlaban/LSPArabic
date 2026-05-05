@@ -26,6 +26,7 @@ class VSRLightningModule(LightningModule):
         tokenizer: BaseTokenizer,
     ) -> None:
         super().__init__()
+        self.save_hyperparameters({"model_config": OmegaConf.to_container(cfg.model, resolve=True)})
         self.cfg = cfg
         self.model = model
         self.teacher = teacher

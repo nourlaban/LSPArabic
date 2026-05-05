@@ -47,6 +47,7 @@ class ArabicTokenizerTrainer:
             vocab_size=self.vocab_size,
             model_type=self.model_type,
             character_coverage=self.character_coverage,
+            max_sentence_length=65536,
             pad_id=0,
             unk_id=1,
             bos_id=2,

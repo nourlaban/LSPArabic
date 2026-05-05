@@ -9,7 +9,7 @@ visual_encoder:
 
 sequence_model:
   _target_: lsparabic.models.mamba_backend.MambaSSMEncoder
-  input_dim: 512
+  input_dim: 256   # VSRModel.bridge already projects visual_encoder(512) → proj_dim(256)
   d_model: 256
   num_layers: 6
   d_state: 16

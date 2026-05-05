@@ -70,6 +70,9 @@ class BeamSearchDecoder(BaseDecoder):
                         p = float(frame[token_id])
                         if p < 1e-10:
                             continue
+                        # Skip out-of-vocab indices (CTC output is vocab+1, SP is vocab)
+                        if token_id != self.blank_idx and token_id >= self.tokenizer.vocab_size:
+                            continue
                         if token_id == self.blank_idx:
                             # Blank: keep hypothesis unchanged, update score
                             new_beams.append(BeamHypothesis(

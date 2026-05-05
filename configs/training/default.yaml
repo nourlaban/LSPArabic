@@ -34,5 +34,7 @@ callbacks:
     mode: min
     filename: "{epoch:02d}-{val_wer:.4f}"
     dirpath: checkpoints/
+    save_last: true
+    auto_insert_metric_name: false
   lr_monitor:
     logging_interval: step

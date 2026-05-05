@@ -6,8 +6,7 @@ from pathlib import Path
 
 import hydra
 import torch
-from hydra.utils import instantiate
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from lsparabic.data.frame_extractor import VideoFrameExtractor
 from lsparabic.data.roi_cropper import MediaPipeMouthCropper
@@ -15,9 +14,9 @@ from lsparabic.data.tokenizer import ArabicSentencePieceTokenizer
 from lsparabic.inference.beam_search import BeamSearchDecoder
 from lsparabic.inference.predictor import VSRPredictor
 from lsparabic.inference.sliding_window import SlidingWindowProcessor
-from lsparabic.models.vsr_model import VSRModel
 from lsparabic.training.lightning_module import VSRLightningModule
 from lsparabic.training.teacher import WhisperTeacher
+from lsparabic.utils.checkpoint_utils import build_model_from_checkpoint
 from lsparabic.utils.logging_utils import setup_logging
 
 
@@ -27,17 +26,8 @@ def main(cfg: DictConfig) -> None:
     device = cfg.inference.device if torch.cuda.is_available() else "cpu"
 
     tokenizer = ArabicSentencePieceTokenizer(Path(cfg.data.tokenizer_path))
-    OmegaConf.update(cfg, "model.decoder.vocab_size", tokenizer.vocab_size, merge=True)
 
-    visual_encoder = instantiate(cfg.model.visual_encoder)
-    sequence_model = instantiate(cfg.model.sequence_model)
-    decoder_module = instantiate(cfg.model.decoder)
-    model = VSRModel(
-        visual_encoder=visual_encoder,
-        sequence_model=sequence_model,
-        decoder=decoder_module,
-        proj_dim=cfg.model.proj_dim,
-    )
+    model = build_model_from_checkpoint(cfg.inference.checkpoint_path, tokenizer.vocab_size)
 
     teacher = WhisperTeacher()
     module = VSRLightningModule.load_from_checkpoint(

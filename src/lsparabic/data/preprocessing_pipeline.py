@@ -108,6 +108,10 @@ class PreprocessingPipeline:
         val_ratio: float,
         test_ratio: float,
     ) -> None:
+        if not samples:
+            logger.warning("No samples to split — skipping split writing")
+            return
+
         def _bucket(video_id: str) -> str:
             h = int(hashlib.md5(video_id.encode()).hexdigest(), 16) % 100
             if h < int(test_ratio * 100):
@@ -121,6 +125,17 @@ class PreprocessingPipeline:
             rows[_bucket(s.video_id)].append(
                 {"video_id": s.video_id, "label_text": s.label_text}
             )
+
+        # When dataset is too small to populate all splits naturally, replicate
+        # the available samples so every split has at least one row.
+        all_rows = [r for bucket in rows.values() for r in bucket]
+        for split in rows:
+            if not rows[split]:
+                rows[split] = all_rows.copy()
+                logger.warning(
+                    f"Split '{split}' was empty — replicating all {len(all_rows)} "
+                    "sample(s) into it (dataset too small for clean stratification)"
+                )
 
         for split, data in rows.items():
             path = splits_dir / f"{split}.csv"
